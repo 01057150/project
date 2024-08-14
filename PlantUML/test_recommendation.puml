@@ -1,0 +1,45 @@
+@startuml RecommendationSystem
+!define RECTANGLE class
+skinparam packageBackgroundColor #DDDDDD
+skinparam classBackgroundColor #EEEEEE
+
+package "RecommendationSystem" {
+    package "prediction_main"{
+        package "recommendation_model" {
+            RECTANGLE PredictionProcessor {
+                +predict_for_user()
+                +preprocess_data()
+                -preprocess_and_predict_batch()
+            }
+        }
+    }
+    
+    package "data_management" {
+        RECTANGLE FileManage {
+            +read_files()
+            +save_processed_data()
+        }
+    }
+
+    package "feature_processing" {
+        RECTANGLE NumericProcessor {
+            +user_features()
+        }
+
+        RECTANGLE ContextualProcessor {
+            +clean_contextual_features()
+        }
+
+        RECTANGLE FeatureProcessor {
+            +one_hot_encode_contextual_features()
+            +one_hot_encode_gender_features()
+        }
+    }
+}
+
+PredictionProcessor --> FileManage : uses
+PredictionProcessor --> ContextualProcessor : uses
+PredictionProcessor --> FeatureProcessor : uses
+PredictionProcessor --> NumericProcessor : uses
+
+@enduml

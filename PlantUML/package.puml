@@ -1,0 +1,124 @@
+@startuml RecommendationSystem
+!define RECTANGLE class
+skinparam packageBackgroundColor #DDDDDD
+skinparam classBackgroundColor #EEEEEE
+
+package "RecommendationSystem" {
+    
+    RECTANGLE RecommendationModel {
+        -config: dict
+        -path: str
+        -model: Model
+        -history: History
+        -num_users: int
+        -num_songs: int
+        -genre_columns: list
+
+        +read_and_process_data()
+        +manage_and_split_data(merged_df)
+        +build_model()
+        +train_model(x_train, y_train)
+        +save_results()
+        +run()
+    }
+
+    package "data_management" {
+        RECTANGLE FileManage {
+            -paths: string
+            +read_raw_files()
+            +read_files()
+            +save_processed_data()
+            +save_to_csv()
+        }
+        RECTANGLE FileComparer {
+            +compare_song_ids()
+            +compare_file()
+        }
+        RECTANGLE DataHandler {
+            +merge_data()
+            +drop_rename_col()
+            +reorder_columns()
+            +release_memory()
+        }
+        RECTANGLE Recommender {
+            +rec_song()
+        }
+        RECTANGLE DataSplitter {
+            +split_data()
+        }
+
+    }
+
+    package "feature_processing" {
+        RECTANGLE FeatureAdder {
+            +user_features()
+            +song_features()
+        }
+        RECTANGLE NumericProcessor {
+            +user_features()
+            +song_features()
+        }
+        RECTANGLE ContextualProcessor {
+            +clean_contextual_features()
+            +clean_contextual_features_simplify()
+        }
+        RECTANGLE FeatureProcessor {
+            +genre_ids()
+            +gender_bd_features()
+            +one_hot_encoder()
+            +one_hot_encode_contextual_features()
+            +one_hot_encode_gender_features()
+        }
+        RECTANGLE Encoder {
+            +encode()
+        }
+    }
+
+    package "recommendation_model" {
+        class MLPModelBuilder {
+            +num_users: int
+            +num_songs: int
+            +user_feature_dim: int
+            +song_feature_dim: int
+            +contextual_feature_dim: int
+            +user_embedding_dim: int
+            +song_embedding_dim: int
+            +create_model()
+        }
+
+        class ModelTrainer {
+            +model: Model
+            +config: dict
+            +train()
+        }
+
+        class PredictionProcessor {
+            +predict_for_user()
+            +preprocess_data()
+            -preprocess_and_predict_batch()
+        }
+
+        class ResultsHandler {
+            +model: Model
+            +history: History
+            +path: str
+            +save_results()
+            +plot_results()
+        }
+    }
+}
+
+RecommendationModel --> FileManage : uses
+RecommendationModel --> DataHandler : uses
+RecommendationModel --> Recommender : uses
+RecommendationModel --> DataSplitter : uses
+RecommendationModel --> FeatureAdder : uses
+RecommendationModel --> NumericProcessor : uses
+RecommendationModel --> ContextualProcessor : uses
+RecommendationModel --> FeatureProcessor : uses
+RecommendationModel --> Encoder : uses
+RecommendationModel --> MLPModelBuilder : uses
+RecommendationModel --> ModelTrainer : uses
+RecommendationModel --> ResultsHandler : uses
+
+@enduml
