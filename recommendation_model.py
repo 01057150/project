@@ -4,7 +4,7 @@ from tensorflow.keras.regularizers import l2
 from tensorflow.keras.models import Model
 from feature_processing import NumericProcessor, ContextualProcessor, FeatureProcessor
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from data_management import FileManage
+from data_management import FileManage, MySQLDatabase
 import tensorflow_model_optimization as tfmot
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -85,7 +85,7 @@ class ModelTrainer:
 
 class PredictionProcessor:
     @staticmethod
-    def predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=1000):
+    def predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=1000, set_batch_size=None):
         """
         為給定的用戶進行預測。
         
@@ -104,7 +104,7 @@ class PredictionProcessor:
             futures = []
             for i in range(0, 359966, batch_size):
                 futures.append(executor.submit(PredictionProcessor.__preprocess_and_predict_batch, 
-                                               user_id, song_df, context_df, user_df, model, i, batch_size))
+                                               user_id, song_df, context_df, user_df, model, i, batch_size, set_batch_size))
             
             for future in as_completed(futures):
                 batch_song_ids, batch_predictions = future.result()
@@ -121,8 +121,11 @@ class PredictionProcessor:
         return result_df
     
     @staticmethod
-    def preprocess_data(user_id):
-        context_df, user_df = FileManage.read_files(user_id=user_id)
+    def preprocess_data(user_id, read_from_database=False):
+        if read_from_database:
+            context_df, user_df = MySQLDatabase().get_features_by_user_id(user_id)
+        else:
+            context_df, user_df = FileManage.read_files(user_id=user_id)
         context_df = ContextualProcessor.clean_contextual_features(context_df)
         context_df_encode = FeatureProcessor.one_hot_encode_contextual_features(context_df, mode='prediction')
         user_df = NumericProcessor.user_features(user_df, mode='prediction')
@@ -132,21 +135,7 @@ class PredictionProcessor:
         return context_df, user_df
     
     @staticmethod
-    def __preprocess_and_predict_batch(user_id, song_df, context_df, user_df, model, start_index, batch_size):
-        """
-        預處理並預測批次數據。
-        
-        參數:
-        user_id (str): 用戶ID。
-        song_df (DataFrame): 批次歌曲數據。
-        context_df (DataFrame): 批次上下文數據。
-        user_features (DataFrame): 用戶特徵。
-        model (Model): 預測模型。
-        start_index (int): 批次索引。
-        
-        返回:
-        tuple: 批次歌曲ID和預測結果。
-        """
+    def __preprocess_and_predict_batch(user_id, song_df, context_df, user_df, model, start_index, batch_size, set_batch_size):
         batch_song_ids = song_df['song_id'].values[start_index:start_index + batch_size]
         batch_song_ids_df = pd.DataFrame(batch_song_ids, columns=['song_id'])
         
@@ -162,16 +151,18 @@ class PredictionProcessor:
         user_id_repeated = np.tile(user_id, (batch_context_features.shape[0], 1))
         
         batch_user_song_feature = np.concatenate([user_features_repeated, batch_song_df.values], axis=1)
-        x_prediction = [user_id_repeated, batch_song_ids, batch_context_features, batch_user_song_feature]
-        
+        x_prediction = [user_id_repeated, batch_song_ids, batch_context_features, batch_user_song_feature]# 打印以供調試
         with tf.device('/gpu:0'):
-            batch_predictions = model.predict(x_prediction, batch_size = batch_size)
+            if set_batch_size is True:
+                batch_predictions = model.predict(x_prediction)
+            else:
+                batch_predictions = model.predict_on_batch(x_prediction)
         #將結果儲存起來
         #FileManage.save_processed_data(user_id_repeated, batch_song_ids, batch_predictions, batch_context_features, batch_user_song_feature, start_index)
         return batch_song_ids, batch_predictions
     
     @staticmethod
-    def predict_for_user_time(user_id, model, batch_size=1000):
+    def predict_for_user_time(user_id, model, song_df, context_df, user_df, batch_size=1000, set_batch_size=None):
         """
         在 predict_for_user 加入計時，測試使用。
         
@@ -183,27 +174,34 @@ class PredictionProcessor:
         返回:
         DataFrame: 按預測結果排序的結果數據框。
         """
+        start_time = time.time()
+        
         _time_lock = threading.Lock()
         total_preparation_duration = 0
         total_prediction_duration = 0
         num_batches = 0
         
-        start_time = time.time()
-        
-        context_df, user_df = PredictionProcessor.__preprocess_data_time(user_id)
-        song_df = FileManage.read_files(file='rec_song')
-        
-        data_prep_time = time.time()
-        print(f"{'===== Data preparation took':<38} {data_prep_time - start_time:>6.4f} seconds =====")
-
         predictions = []
         all_song_ids = []
+        start_values = []
+        
+        total_size = 359966
+
+        for i in range(0, total_size, batch_size):
+            start_values.append(i)
+            end = min(i + batch_size - 1, total_size - 1)
+            if end == total_size - 1:
+                break
+
+        if len(start_values) > 1:
+            last_start = start_values.pop()
+            start_values.insert(0, last_start)
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
-            for i in range(0, 359966, batch_size):
+            for i in start_values:
                 futures.append(executor.submit(PredictionProcessor.__preprocess_and_predict_batch_time, 
-                                               user_id, song_df, context_df, user_df, model, i, batch_size))
+                                               user_id, song_df, context_df, user_df, model, i, batch_size, set_batch_size))
             
             for future in as_completed(futures):
                 batch_song_ids, batch_predictions, preparation_duration, prediction_duration= future.result()
@@ -214,7 +212,6 @@ class PredictionProcessor:
                     total_preparation_duration += preparation_duration
                     total_prediction_duration += prediction_duration
                 num_batches += 1
-                
 
         average_prep_time = total_preparation_duration / num_batches
         average_predict_time = total_prediction_duration / num_batches
@@ -223,8 +220,7 @@ class PredictionProcessor:
         print(f"{'      Average batch prediction time:':<38} {average_predict_time:>6.4f} seconds      ")
                 
         result_prep_time = time.time()
-        print(f"{'===== Result preparation took':<38} {result_prep_time - data_prep_time:>6.4f} seconds =====")
-        
+        print(f"{'===== Result preparation took':<38} {result_prep_time - start_time:>6.4f} seconds =====")
         
         result_df = pd.DataFrame({
             'song_id': np.concatenate(all_song_ids),
@@ -235,15 +231,19 @@ class PredictionProcessor:
         end_time = time.time()
         print(f"{'===== Total predict_for_user took':<38} {end_time - start_time:>6.4f} seconds =====")
         
-        return result_df, (data_prep_time - start_time), average_prep_time, average_predict_time, (result_prep_time - data_prep_time), (end_time - start_time)
+        return result_df, average_prep_time, average_predict_time, (result_prep_time - start_time), (end_time - start_time)
     
     @staticmethod
-    def __preprocess_data_time(user_id):
+    def preprocess_data_time(user_id, read_from_database=False):
         start_time = time.time()
-        
-        context_df, user_df = FileManage.read_files(user_id=user_id)
-        read_time = time.time()
-        print(f"{'      Reading files took':<38} {read_time - start_time:>6.4f} seconds")
+        if read_from_database:
+            context_df, user_df = MySQLDatabase().get_features_by_user_id(user_id)
+            read_time = time.time()
+            print(f"{'      Querying database took':<38} {read_time - start_time:>6.4f} seconds")
+        else:
+            context_df, user_df = FileManage.read_files(user_id=user_id)
+            read_time = time.time()
+            print(f"{'      Reading files took':<38} {read_time - start_time:>6.4f} seconds")
         
         context_df = ContextualProcessor.clean_contextual_features(context_df)
         context_df_encode = FeatureProcessor.one_hot_encode_contextual_features(context_df, mode='prediction')
@@ -259,7 +259,7 @@ class PredictionProcessor:
         return context_df, user_df
     
     @staticmethod
-    def __preprocess_and_predict_batch_time(user_id, song_df, context_df, user_df, model, start_index, batch_size):
+    def __preprocess_and_predict_batch_time(user_id, song_df, context_df, user_df, model, start_index, batch_size, set_batch_size):
         
         batch_start_time = time.time()
         
@@ -285,7 +285,10 @@ class PredictionProcessor:
         print(f"      {start_index:06} batch preparation took {preparation_duration:>9.4f} seconds")
         
         with tf.device('/gpu:0'):
-            batch_predictions = model.predict(x_prediction, batch_size = batch_size)
+            if set_batch_size is True:
+                batch_predictions = model.predict(x_prediction)
+            else:
+                batch_predictions = model.predict_on_batch(x_prediction)
             
         batch_predict_time = time.time()
         prediction_duration = batch_predict_time - batch_prepare_time

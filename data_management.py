@@ -1,7 +1,83 @@
 import gc
 import os
+import json
 import pandas as pd
+import mysql.connector
 from sklearn.model_selection import train_test_split
+
+class MySQLDatabase:
+    def __init__(self, config_path='config.json'):
+        """
+        初始化資料庫連接
+        :param config_path: 配置文件路徑
+        """
+        self.config_path = config_path
+        self.connection = None
+        self.cursor = None
+
+    def connect(self):
+        """建立資料庫連接並創建 cursor 對象"""
+        try:
+            with open(self.config_path, 'r') as config_file:
+                config = json.load(config_file)
+            self.connection = mysql.connector.connect(**config)
+            self.cursor = self.connection.cursor()
+            print("資料庫連接成功！")
+        except mysql.connector.Error as err:
+            print(f"資料庫連接失敗: {err}")
+            self.connection = None
+            self.cursor = None
+
+    def execute_query(self, query, params=None):
+        """
+        執行 SQL 查詢
+        :param query: SQL 查詢語句
+        :param params: 查詢參數(可選)
+        :return: 查詢結果
+        """
+        if self.connection and self.cursor:
+            try:
+                self.cursor.execute(query, params)
+                return self.cursor.fetchall()
+            except mysql.connector.Error as err:
+                print(f"執行時出錯: {err}")
+                return None
+        else:
+            print("未連接到資料庫。")
+            return None
+        
+    def get_features_by_user_id(self, user_id):
+        self.connect()  # 建立資料庫連接
+        if user_id is not None:
+            user_id = int(user_id) # 確保 user_id 是 Python 的 int 類型
+            # 查詢 context features
+            query_context = "SELECT song_id, source_system_tab, source_screen_name, source_type FROM c_features WHERE user_id=%s"
+            context_features = self.execute_query(query_context, (user_id,))
+
+            # 查詢 user features
+            query_user = "SELECT number_of_songs, bd, gender FROM u_features WHERE user_id=%s"
+            user_features = self.execute_query(query_user, (user_id,))
+            
+            self.close()  # 關閉資料庫連接
+            
+            context_feature_df = pd.DataFrame(context_features, columns=['song_id', 'source_system_tab', 'source_screen_name', 'source_type'])
+            user_feature_df = pd.DataFrame(user_features, columns=['number_of_songs', 'bd', 'gender'])
+            
+            # 清理 DataFrame 中的换行符或其他不需要的字符
+            user_feature_df['gender'] = user_feature_df['gender'].str.strip()
+            
+            return context_feature_df, user_feature_df
+        
+        self.close()  # 關閉資料庫連接（即使 user_id 為 None 也要關閉）
+        return pd.DataFrame(), pd.DataFrame()
+
+    def close(self):
+        """關閉 cursor 和資料庫連接"""
+        if self.cursor:
+            self.cursor.close()
+        if self.connection:
+            self.connection.close()
+        print("已關閉與資料庫連接。")
 
 class FileManage:
     __paths = {
@@ -59,7 +135,7 @@ class FileManage:
                 # 重置索引以便後續操作
                 context_feature_df_filtered.reset_index(inplace=True)
                 user_feature_df_filtered.reset_index(inplace=True)
-                
+
                 return (context_feature_df_filtered[['song_id', 'source_system_tab', 'source_screen_name', 'source_type']],
                         user_feature_df_filtered)
                 
