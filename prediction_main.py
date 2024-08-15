@@ -23,7 +23,7 @@ def main():
             context_df, user_df = PredictionProcessor.preprocess_data(user_id,read_from_database=True)
             
             # Make predictions for the user
-            result_df = PredictionProcessor.predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=120000, set_batch_size=True)
+            result_df = PredictionProcessor.predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=120000)
             end_time = time.time()
             print(f"{'===== Total predict_for_user took':<38} {end_time - start_time:>6.4f} seconds =====")
             

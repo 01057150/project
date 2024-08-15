@@ -153,9 +153,11 @@ class PredictionProcessor:
         batch_user_song_feature = np.concatenate([user_features_repeated, batch_song_df.values], axis=1)
         x_prediction = [user_id_repeated, batch_song_ids, batch_context_features, batch_user_song_feature]# 打印以供調試
         with tf.device('/gpu:0'):
-            if set_batch_size is True:
+            if set_batch_size is False:
                 batch_predictions = model.predict(x_prediction)
-            else:
+            elif set_batch_size is True:
+                batch_predictions = model.predict(x_prediction, batch_size=batch_size)
+            elif set_batch_size is None:
                 batch_predictions = model.predict_on_batch(x_prediction)
         #將結果儲存起來
         #FileManage.save_processed_data(user_id_repeated, batch_song_ids, batch_predictions, batch_context_features, batch_user_song_feature, start_index)
@@ -285,11 +287,13 @@ class PredictionProcessor:
         print(f"      {start_index:06} batch preparation took {preparation_duration:>9.4f} seconds")
         
         with tf.device('/gpu:0'):
-            if set_batch_size is True:
+            if set_batch_size is False:
                 batch_predictions = model.predict(x_prediction)
-            else:
+            elif set_batch_size is True:
+                batch_predictions = model.predict(x_prediction, batch_size=batch_size)
+            elif set_batch_size is None:
                 batch_predictions = model.predict_on_batch(x_prediction)
-            
+
         batch_predict_time = time.time()
         prediction_duration = batch_predict_time - batch_prepare_time
         print(f"      {start_index:06} batch prediction took {prediction_duration:>10.4f} seconds")
