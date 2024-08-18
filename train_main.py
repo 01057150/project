@@ -1,9 +1,9 @@
 from data_management import FileManage, DataHandler, Recommender, DataSplitter
 from feature_processing import FeatureAdder, NumericProcessor, ContextualProcessor, FeatureProcessor, Encoder
 from recommendation_model import MLPModelBuilder, ModelTrainer, ResultsHandler
-from tensorflow.keras.utils import plot_model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.metrics import AUC
+import os
 
 class RecommendationModel:
     def __init__(self, config):
@@ -11,8 +11,8 @@ class RecommendationModel:
         self.path = config['file_path']
         self.model = None
         self.history = None
-        self.num_users = 0
-        self.num_songs = 0
+        self.num_users = 30755
+        self.num_songs = 359966
         self.genre_columns = []
 
     def read_and_process_data(self):
@@ -44,7 +44,7 @@ class RecommendationModel:
         merged_df, self.num_users, self.num_songs = Encoder.encode(merged_df, self.path)
         
         # Step 9: Create rec_song.csv
-        Recommender.rec_song(merged_df, self.path, self.num_songs, self.genre_columns)
+        Recommender.rec_song(merged_df, self.path, self.num_songs, self.genre_columns, save_format='joblib')
         
         # Step 10: Manage columns
         merged_df = DataHandler.drop_rename_col(merged_df)
@@ -54,7 +54,7 @@ class RecommendationModel:
 
     def split_and_prepare_data(self, merged_df):
         # Step 11: Split data
-        train_df = DataSplitter.split_data(merged_df, self.path)
+        train_df = DataSplitter.split_data(merged_df, self.path, save_format='joblib')
         
         # Step 12: Prepare data for training
         x_train, y_train = FeatureProcessor.one_hot_encoder(train_df)
@@ -63,7 +63,9 @@ class RecommendationModel:
     
     def file_based_data_preparation(self):
         # Step 11: Read train files
-        train_df = FileManage.read_files(file = 'train_file')
+        #train_df = FileManage.read_files(file = 'train_file')
+        train_df_path = os.path.join(self.path, 'train_file.joblib')
+        train_df = FileManage.load_from_joblib(train_df_path)
         
         # Step 12: Prepare data for training
         x_train, y_train = FeatureProcessor.one_hot_encoder(train_df)
@@ -93,26 +95,18 @@ class RecommendationModel:
 
     def train_model(self, x_train, y_train):
         # Step 15: Train the model
-        trainer = ModelTrainer(self.model, self.config, self.config)
+        trainer = ModelTrainer(self.model, self.config)
         self.history = trainer.train(x_train, y_train)
 
-    def save_results(self):
+    def save_results(self, save_architecture=False):
         # Step 16: Plot the results
-        results_handler = ResultsHandler(self.model, self.history, self.path)
+        results_handler = ResultsHandler(self.model, self.history, self.path,self.config['model_name'])
         results_handler.plot_results()
         
         # Step 17: Save the results
-        results_handler.save_results()
-        
-        # Step 18: Save the model architecture
-        plot_model(self.model, 
-                   to_file=self.path + f"{config['model_name']}_model.png", 
-                   show_shapes=True, 
-                   show_layer_names=True, 
-                   rankdir="BT", 
-                   dpi=200)
-        
-    def run(self, use_train_file=False):
+        results_handler.save_results(save_architecture)
+            
+    def run(self, use_train_file=False, save_architecture=False):
         if use_train_file:
             # Directly read and prepare data from train file
             x_train, y_train = self.file_based_data_preparation()
@@ -124,7 +118,7 @@ class RecommendationModel:
         # Execute the training pipeline
         self.build_model()
         self.train_model(x_train, y_train)
-        self.save_results()
+        self.save_results(save_architecture)
 
 if __name__ == "__main__":
     config = {
@@ -134,8 +128,8 @@ if __name__ == "__main__":
         'song_feature_dim': 15,
         'contextual_feature_dim': 18,
         'user_embedding_dim': 32,
-        'song_embedding_dim': 32,
-        'epochs': 1,
+        'song_embedding_dim': 64,
+        'epochs': 50,
         'batch_size': 256,
         'validation_split': 0.2,
         'patience': 5,
@@ -143,7 +137,7 @@ if __name__ == "__main__":
         'beta_1': 0.9,
         'beta_2': 0.999,
         'epsilon': 1e-07,
-        'model_name': 'my_model'
+        'model_name': 'test_model'
     }
     recommender_model = RecommendationModel(config)
-    recommender_model.run(use_train_file=True)
+    recommender_model.run(use_train_file=False, save_architecture=False)

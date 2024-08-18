@@ -7,54 +7,62 @@ from data_management import FileManage
 from sklearn.preprocessing import StandardScaler, LabelEncoder, Normalizer, MultiLabelBinarizer, OneHotEncoder
 
 class FeatureAdder:
-    #函式：添加 number_of_songs
+    # Function: Add number_of_songs
     @staticmethod
     def user_features(merged_df):
-        # 檢查是否存在 msno 或 user_id 欄位
+        # Check if msno or user_id column exists
         if 'msno' in merged_df.columns:
             user_column = 'msno'
         elif 'user_id' in merged_df.columns:
             user_column = 'user_id'
         else:
-            raise ValueError("數據框中必須包含 msno 或 user_id 欄位")
+            raise ValueError("The DataFrame must contain either 'msno' or 'user_id' column.")
         
-        # 添加 number_of_songs 欄位，計算每個使用者出現的次數
+        # Add number_of_songs column, counting occurrences of each user
         merged_df['number_of_songs'] = merged_df.groupby(user_column)[user_column].transform('count')
         
-        print("用戶歌曲數 新增完成")
+        print("Number of songs per user added.")
         
         return merged_df
-    #函式：添加 support、confidence、artist_support、artist_confidence
+
+    # Function: Add support, confidence, artist_support, artist_confidence
     @staticmethod
     def song_features(merged_df, context_feature):
-
-        # 計算支持率和信心度
+        # Ensure 'song_id' and 'target' columns are present in context_feature
+        if 'song_id' not in context_feature.columns or 'target' not in context_feature.columns:
+            raise ValueError("The 'context_feature' DataFrame must contain 'song_id' and 'target' columns.")
+        
+        # Calculate support and confidence
         song_counts = context_feature['song_id'].value_counts(normalize=True)
         song_target_counts = context_feature[context_feature['target'] == 1]['song_id'].value_counts()
         song_total_counts = context_feature['song_id'].value_counts()
 
-        # 支持率
+        # Add support
         merged_df = FeatureAdder.__calculate_support(merged_df, song_counts)
 
-        # 信心度
+        # Add confidence
         merged_df = FeatureAdder.__calculate_confidence(merged_df, song_target_counts, song_total_counts)
 
-        print("歌曲支持率與信心度 新增完成")
+        print("Song support and confidence metrics added.")
         
-        # 填充 artist_name 中的 NaN 值
+        # Fill NaN values in artist_name
         merged_df.fillna({'artist_name': 'Unknown'}, inplace=True)
 
-        # 計算每個 artist_name 的支持率和信心度
+        # Ensure 'artist_name' column is present in merged_df
+        if 'artist_name' not in merged_df.columns:
+            raise ValueError("The DataFrame must contain 'artist_name' column.")
+        
+        # Calculate support and confidence for each artist
         artist_counts = merged_df.groupby('artist_name').size()
         artist_target_counts = merged_df[merged_df['target'] == 1].groupby('artist_name').size() 
 
-        # 支持率
+        # Add artist support
         merged_df = FeatureAdder.__calculate_artist_support(merged_df, artist_counts)
 
-        # 信心度
+        # Add artist confidence
         merged_df = FeatureAdder.__calculate_artist_confidence(merged_df, artist_target_counts, artist_counts)
 
-        print("歌手支持率與信心度 新增完成")
+        print("Artist support and confidence metrics added.")
         
         return merged_df
     
@@ -81,164 +89,143 @@ class FeatureAdder:
         return merged_df
 
 class NumericProcessor:
-    # 函数：處理使用者數值特徵
+    
     @staticmethod
     def user_features(merged_df, mode='train', scaler_dir='Scalers', scaler_filename='user_scaler.joblib'):
-        if not os.path.exists(scaler_dir):
-            os.makedirs(scaler_dir)
-        
-        scaler_path = os.path.join(scaler_dir, scaler_filename)
-        # 定義要處理的數值 col
+        scaler_path = NumericProcessor.__ensure_directory(scaler_dir, scaler_filename)
         numeric_user_cols = ['number_of_songs', 'bd']
-            
-        # 對數變換高度偏斜的數據
-        for col in numeric_user_cols:
-            merged_df[col] = np.log1p(merged_df[col])
-            print(f"{col} 已進行對數變換")
-
+        
+        # Log transform for skewed data
+        merged_df = NumericProcessor.__log_transform(merged_df, numeric_user_cols)
+        
         if mode == 'train':
-            # 創建 StandardScaler 並進行標準化
             scaler = StandardScaler()
             merged_df[numeric_user_cols] = scaler.fit_transform(merged_df[numeric_user_cols])
-            
-            # 保存 StandardScaler 到文件
             dump(scaler, scaler_path)
-            print(f"StandardScaler 已成功保存到 {scaler_path}")
-            
+            print(f"StandardScaler for user features saved to {scaler_path}.")
         elif mode == 'prediction':
-            # 檢查是否需要加載已保存的 StandardScaler
-            try:
-                scaler = load(scaler_path)
-                print(f"已加載 StandardScaler")
-                
-                # 標準化數據
-                merged_df[numeric_user_cols] = scaler.transform(merged_df[numeric_user_cols])
-            except FileNotFoundError:
-                raise FileNotFoundError(f"找不到已保存的 StandardScaler 文件: {scaler_path}")
-            
+            merged_df = NumericProcessor.__load_and_transform(merged_df, numeric_user_cols, scaler_path)
         else:
-            raise ValueError("模式應為 'train' 或 'prediction'")
+            raise ValueError("Mode should be 'train' or 'prediction'.")
         
-        print("使用者數值特徵已進行標準化")
-        print("數據特徵處理完成")
-        
+        print("User numeric features standardized.")
         return merged_df
     
     @staticmethod
     def song_features(merged_df, mode='train', scaler_dir='Scalers', scaler_filename='song_scaler.joblib'):
-        # 確保 Scalers 資料夾存在
-        if not os.path.exists(scaler_dir):
-            os.makedirs(scaler_dir)
-        
-        scaler_path = os.path.join(scaler_dir, scaler_filename)
-        # 定義要處理的數值 col
+        scaler_path = NumericProcessor.__ensure_directory(scaler_dir, scaler_filename)
         numeric_song_cols = ['support', 'confidence', 'artist_support', 'artist_confidence']
         
-        # 對數變換高度偏斜的數據
-        for col in ['support', 'artist_support']:
-            merged_df[col] = np.log1p(merged_df[col])
-            print(f"{col} 已進行對數變換")
+        # Log transform for specific columns
+        merged_df = NumericProcessor.__log_transform(merged_df, ['support', 'artist_support'])
         
         if mode == 'train':
-            # 創建 StandardScaler 並進行標準化
             scaler = StandardScaler()
             merged_df[numeric_song_cols] = scaler.fit_transform(merged_df[numeric_song_cols])
-            
-            # 保存 StandardScaler 到文件
             dump(scaler, scaler_path)
-            print(f"StandardScaler 已成功保存到 {scaler_path}")
-        
+            print(f"StandardScaler for user features saved to {scaler_path}.")
         elif mode == 'prediction':
-            # 檢查是否需要加載已保存的 StandardScaler
-            try:
-                scaler = load(scaler_path)
-                print(f"已加載 StandardScaler")
-
-                # 標準化數據
-                merged_df[numeric_song_cols] = scaler.transform(merged_df[numeric_song_cols])
-            except FileNotFoundError:
-                raise FileNotFoundError(f"找不到已保存的 StandardScaler 文件: {scaler_path}")
-        
+            merged_df = NumericProcessor.__load_and_transform(merged_df, numeric_song_cols, scaler_path)
         else:
-            raise ValueError("模式應為 'train' 或 'prediction'")
+            raise ValueError("Mode should be 'train' or 'prediction'.")
         
-        print("歌曲數值特徵已進行標準化")
-        print("數據特徵處理完成")
-        
+        print("Song numeric features standardized.")
         return merged_df
     
     @staticmethod
     def version1(merged_df):
-        # number_of_songs 除以最大值縮放到 0~1間
         max_number_of_songs = merged_df['number_of_songs'].max()
         merged_df['number_of_songs'] = merged_df['number_of_songs'] / max_number_of_songs
-        print("number_of_songs 已縮放到 0~1 間")
-
-        # bd 使用 Normalize 處理
+        print("number_of_songs has been scaled to 0~1 range")
+        
         normalizer = Normalizer()
         merged_df['bd'] = normalizer.fit_transform(merged_df[['bd']])
-        print("bd 已進行 Normalize 處理")
+        print("bd has been normalized")
         
         return merged_df
     
     @staticmethod
     def version2(merged_df):
-        # 定義要處理的數值 col
         numeric_cols = ['number_of_songs', 'support', 'confidence', 'artist_support', 'artist_confidence', 'bd']
-        
         merged_df = NumericProcessor.version1(merged_df)
         
-        # 使用 StandardScaler 進行標準化
         scaler = StandardScaler()
         merged_df[numeric_cols] = scaler.fit_transform(merged_df[numeric_cols])
-        
-        print("所有數值特徵已進行標準化")
+        print("All numeric features have been standardized")
         
         return merged_df
+    
+    # Private method: Log transformation
+    @staticmethod
+    def __log_transform(df, cols):
+        for col in cols:
+            df[col] = np.log1p(df[col])
+            print(f"Log-transformed {col}")
+        return df
+
+    # Private method: Ensure directory and scaler path
+    @staticmethod
+    def __ensure_directory(scaler_dir, scaler_filename):
+        if not os.path.exists(scaler_dir):
+            os.makedirs(scaler_dir)
+        return os.path.join(scaler_dir, scaler_filename)
+    
+    # Private method: Load scaler and transform data
+    @staticmethod
+    def __load_and_transform(df, cols, scaler_path):
+        try:
+            scaler = load(scaler_path)
+            print("StandardScaler loaded successfully")
+            df[cols] = scaler.transform(df[cols])
+        except FileNotFoundError:
+            raise FileNotFoundError(f"StandardScaler {scaler_path} not found: ")
+        return df
+    
 
 class ContextualProcessor:
-    # 函数：處理情境特徵(原始論文方法)
+    # Function: Process contextual features (original paper method)
     @staticmethod
     def clean_contextual_features(merged_df):
-        #定義情境特徵有效值，注意 source_screen_name 開頭為大寫
+        # Define valid values for contextual features, note that source_screen_name starts with a capital letter
         valid_source_system_tab = ['my library', 'discover', 'radio', 'listen with', 'others']
         valid_source_screen_name = ['Local playlist more', 'Online playlist more', 'My library', 'Radio', 'Others profile more', 'Discover Genre', 'Others']
         valid_source_type = ['online-playlist', 'local-playlist', 'local-library', 'radio', 'listen-with', 'others']
         
-        # 替換無效值為 'others'
+        # Replace invalid values with 'others'
         merged_df['source_system_tab'] = merged_df['source_system_tab'].apply(lambda x: x if x in valid_source_system_tab else 'others')
         merged_df['source_screen_name'] = merged_df['source_screen_name'].apply(lambda x: x if x in valid_source_screen_name else 'Others')
         merged_df['source_type'] = merged_df['source_type'].apply(lambda x: x if x in valid_source_type else 'others')
 
-        print("已處理 contextual_features 中的無效值")
+        print("Invalid values in contextual features processed.")
         
         return merged_df
     
     @staticmethod
     def clean_contextual_features_simplify(merged_df):
-        #定義情境特徵有效值，注意 source_screen_name 開頭為大寫
+        # Define valid values for contextual features, note that source_screen_name starts with a capital letter
         valid_source_system_tab = ['my library', 'discover', 'others']
         valid_source_screen_name = ['Playlist more', 'My library', 'Discover Genre', 'Others']
         valid_source_type = ['online-playlist', 'local-playlist', 'local-library', 'others']
         
-        # 替換無效值為 'others'
+        # Replace invalid values with 'others'
         merged_df['source_system_tab'] = merged_df['source_system_tab'].apply(lambda x: x if x in valid_source_system_tab else 'others')
         
-        # 將 'Local playlist more' 和 'Online playlist more' 變成 'Playlist more'
+        # Change 'Local playlist more' and 'Online playlist more' to 'Playlist more'
         merged_df['source_screen_name'] = merged_df['source_screen_name'].apply(lambda x: 'Playlist more' if x in ['Local playlist more', 'Online playlist more'] else (x if x in valid_source_screen_name else 'Others'))
         
-        # 將 'online-playlist' 和 'local-playlist' 變成 'playlist'
+        # Change 'online-playlist' and 'local-playlist' to 'playlist'
         merged_df['source_type'] = merged_df['source_type'].apply(lambda x: 'playlist' if x in ['online-playlist', 'local-playlist'] else (x if x in valid_source_type else 'others'))
 
-        print("已處理 contextual_features 中的無效值")
+        print("Invalid values in contextual_features have been processed")
         
         return merged_df
 
+
 class FeatureProcessor:
-    # 函数：處理 genre_ids，注意到複數會用'|'隔開
+    # Function: Process genre_ids, noting that multiple genres are separated by '|'
     @staticmethod
     def genre_ids(merged_df):
-        # 定義歌曲種類有效值
+        # Define valid genre IDs
         valid_genre_ids = ['465', '458', '921', '1609', '444', '1259', '2022', '359', '139', '2122', 'others']
         
         def replace_invalid_genres(genre_str):
@@ -246,43 +233,43 @@ class FeatureProcessor:
             replaced_genres = [genre if genre in valid_genre_ids else 'others' for genre in genres]
             return replaced_genres
         
-        # 替換無效值為 'others' 並將 genre_ids 列處理為列表
+        # Replace invalid values with 'others' and process the genre_ids column as a list
         merged_df['genre_ids'] = merged_df['genre_ids'].astype(str).apply(replace_invalid_genres)
         
-        print("已處理 genre_ids_features 中的無效值")
+        print("Invalid values in genre IDs features processed.")
         
-        # 使用 MultiLabelBinarizer 進行編碼
+        # Encode using MultiLabelBinarizer
         mlb = MultiLabelBinarizer()
         genre_encoded = mlb.fit_transform(merged_df['genre_ids'])
         
-        # 將編碼結果轉為 DataFrame
+        # Convert the encoded results to a DataFrame
         genre_encoded_df = pd.DataFrame(genre_encoded, columns=mlb.classes_)
         
-        # 合併原始數據框和編碼後的 genre_ids
-        merged_df = merged_df.join(genre_encoded_df)
+        # Merge the original DataFrame with the encoded genre_ids
+        merged_df = pd.concat([merged_df, genre_encoded_df], axis=1)
         
-        # 移除原始的 genre_ids 列
+        # Remove the original genre_ids column
         merged_df.drop(columns=['genre_ids'], inplace=True)
         
-        print("已完成 genre_ids 的 OneHotEncoder")
+        print("OneHotEncoder for genre IDs completed.")
         
         return merged_df, mlb.classes_
     
-    #函式：處理性別與年齡
+    # Function: Process gender and age
     @staticmethod
     def gender_bd_features(user_feature_df):
-        # 填充 gender 中的空值
+        # Fill missing values in the gender column
         user_feature_df.fillna({'gender': 'none'}, inplace=True)
 
-        # 檢查和替換 bd
-        # 計算 14 到 68 之間的平均年齡
+        # Check and replace bd (birthdate/age)
+        # Calculate the average age between 14 and 68
         valid_bd = user_feature_df['bd'][(user_feature_df['bd'] >= 14) & (user_feature_df['bd'] <= 68)]
         average_bd = valid_bd.mean()
 
-        # 替換不在 14 到 68 範圍內的 bd
+        # Replace bd values that are not in the 14 to 68 range
         user_feature_df['bd'] = user_feature_df['bd'].apply(lambda x: average_bd if x < 14 or x > 68 else x)
 
-        print("gender 與 bd 修改完成")
+        print("Gender and birthdate modifications completed.")
         
         return user_feature_df
     
@@ -295,13 +282,13 @@ class FeatureProcessor:
         genre_features_encoded = train_df[genre_columns].values
 
         contextual_features_encoded = FeatureProcessor.one_hot_encode_contextual_features(
-            train_df[['source_system_tab', 'source_screen_name', 'source_type']], mode = mode
+            train_df[['source_system_tab', 'source_screen_name', 'source_type']], mode=mode
         )
 
-        print("合併後的 contextual_features 前幾行:")
+        print("First few rows of merged contextual_features:")
         print(pd.DataFrame(contextual_features_encoded).head())
             
-        gender_features_encoded = FeatureProcessor.one_hot_encode_gender_features(train_df[['gender']], mode = mode)
+        gender_features_encoded = FeatureProcessor.one_hot_encode_gender_features(train_df[['gender']], mode=mode)
 
         numeric_song_features = train_df[['support', 'confidence', 'artist_support', 'artist_confidence']].values
         numeric_user_features = train_df[['number_of_songs', 'bd']].values
@@ -313,7 +300,7 @@ class FeatureProcessor:
             numeric_song_features
         ], axis=1)
 
-        print("合併後的 user_song_features 前幾行:")
+        print("First few rows of merged user_song_features:")
         print(pd.DataFrame(user_song_features).head())
 
         targets = train_df['target'].values
@@ -321,76 +308,60 @@ class FeatureProcessor:
         x_train = [user_ids, song_ids, contextual_features_encoded, user_song_features]
         y_train = targets
             
-        print('數據準備完成')
+        print('Data preparation is complete')
         return x_train, y_train
-    
+
+    @staticmethod
+    def __get_or_create_encoder(df, mode, encoder_dir, encoder_filename):
+        if not os.path.exists(encoder_dir):
+            os.makedirs(encoder_dir)
+
+        encoder_path = os.path.join(encoder_dir, encoder_filename)
+        
+        if mode == 'train':
+            encoder = OneHotEncoder(sparse_output=False)
+            encoded_features = encoder.fit_transform(df)
+            dump(encoder, encoder_path)
+            print(f"Encoder saved to {encoder_path}")
+        elif mode in ['prediction', 'test']:
+            if os.path.exists(encoder_path):
+                encoder = load(encoder_path)
+                encoded_features = encoder.transform(df)
+                print(f"Encoder loaded from {encoder_path}")
+            else:
+                raise FileNotFoundError(f"Encoder {encoder_filename} not found. Please ensure the encoder was saved during the training phase.")
+        else:
+            raise ValueError("Mode should be 'train', 'prediction', or 'test'")
+        
+        return encoded_features
+
+    # Function: One-Hot encode contextual features
     @staticmethod
     def one_hot_encode_contextual_features(df, mode='train', encoder_dir='OneHotEncoder', encoder_filename='contextual_encoder.joblib'):
-        if not os.path.exists(encoder_dir):
-            os.makedirs(encoder_dir)
-    
-        encoder_path = os.path.join(encoder_dir, encoder_filename)
         contextual_features = df[['source_system_tab', 'source_screen_name', 'source_type']]
-        
-        if mode == 'train':
-            encoder_contextual = OneHotEncoder(sparse_output=False)
-            encoded_features = encoder_contextual.fit_transform(contextual_features)
-            
-            # 保存編碼器
-            dump(encoder_contextual, encoder_path)
-            print("上下文特徵編碼器已保存")
+        return FeatureProcessor.__get_or_create_encoder(contextual_features, mode, encoder_dir, encoder_filename)
 
-        elif mode in ['prediction', 'test']:
-            try:
-                encoder_contextual = load(encoder_path)
-                print("已加載情境特徵編碼器")
-                encoded_features = encoder_contextual.transform(contextual_features)
-            except FileNotFoundError:
-                raise FileNotFoundError("未找到上下文特徵編碼器文件。請確保在訓練階段已經保存了編碼器。")
-        else:
-            raise ValueError("模式應為 'train' 或 'prediction' 或 'test'")
-            
-        return encoded_features
-    
+    # Function: One-Hot encode gender features
     @staticmethod
     def one_hot_encode_gender_features(df, mode='train', encoder_dir='OneHotEncoder', encoder_filename='gender_encoder.joblib'):
-        if not os.path.exists(encoder_dir):
-            os.makedirs(encoder_dir)
-    
-        encoder_path = os.path.join(encoder_dir, encoder_filename)
         gender_features = df[['gender']]
-        
-        if mode == 'train':
-            encoder_gender = OneHotEncoder(sparse_output=False)
-            encoded_features = encoder_gender.fit_transform(gender_features)
+        return FeatureProcessor.__get_or_create_encoder(gender_features, mode, encoder_dir, encoder_filename)
 
-            # 保存編碼器
-            dump(encoder_gender, encoder_path)
-            print("性別特徵編碼器已保存")
-
-        elif mode in ['prediction', 'test']:
-            try:
-                encoder_gender = load(encoder_path)
-                print("已加載性別特徵編碼器")
-                encoded_features = encoder_gender.transform(gender_features)
-            except FileNotFoundError:
-                raise FileNotFoundError("未找到性別特徵編碼器文件。請確保在訓練階段已經保存了編碼器。")
-        else:
-            raise ValueError("模式應為 'train' 或 'prediction' 或 'test'")
-
-        return encoded_features
 
 class Encoder:
-    # 函数：編碼 msno、song_id
+    # Function: Encode msno, song_id
     @staticmethod
     def encode(merged_df, path):
-        # 創建 LabelEncoder 實例
+        # Ensure the directory exists
+        Encoder.__check_and_create_path(path)
+
+        # Create LabelEncoder instances
         msno_encoder = LabelEncoder()
         song_id_encoder = LabelEncoder()
         merged_df['msno_encoded'] = msno_encoder.fit_transform(merged_df['msno'])
         merged_df['song_id_encoded'] = song_id_encoder.fit_transform(merged_df['song_id'])
         
-        # 保存對照表
+        # Save mappings
         msno_mapping = pd.DataFrame({
             'msno': msno_encoder.classes_,
             'msno_encoded': range(len(msno_encoder.classes_))
@@ -401,41 +372,42 @@ class Encoder:
             'song_id_encoded': range(len(song_id_encoder.classes_))
         })
         
-        # 保存 LabelEncoder
+        # Save LabelEncoders
         Encoder.save_label_encoders(msno_encoder, song_id_encoder, path)
         
-        # 計算維度
+        # Calculate dimensions
         #num_users = msno_mapping.max()
         #num_songs = song_id_mapping.max()
         num_users = len(msno_mapping)
         num_songs = len(song_id_mapping)
-        print(f"使用者人數：{num_users}")
-        print(f"歌曲數量：{num_songs}")
+        print(f"Number of users: {num_users}.")
+        print(f"Number of songs: {num_songs}.")
         
-        # 保存到 CSV 文件
-        FileManage.save_to_csv(msno_mapping, path + r'\msno_mapping.csv')
-        FileManage.save_to_csv(song_id_mapping, path + r'\song_id_mapping.csv')
+        # Save to CSV files
+        FileManage.save_to_csv(msno_mapping, os.path.join(path, 'msno_mapping.csv'))
+        FileManage.save_to_csv(song_id_mapping, os.path.join(path, 'song_id_mapping.csv'))
 
         return merged_df, num_users, num_songs
     
-    # 保存 LabelEncoder 實例，包含了所有 user_id song_id 的映射關係
+    # Save LabelEncoder instances
     @staticmethod
     def save_label_encoders(msno_encoder, song_id_encoder, path):
-        with open(path + r'\msno_encoder.pkl', 'wb') as f:
+        Encoder.__check_and_create_path(path)
+        with open(os.path.join(path, 'msno_encoder.pkl'), 'wb') as f:
             pickle.dump(msno_encoder, f)
-        with open(path + r'\song_id_encoder.pkl', 'wb') as f:
+        with open(os.path.join(path, 'song_id_encoder.pkl'), 'wb') as f:
             pickle.dump(song_id_encoder, f)
 
-    # 讀取 LabelEncoder 實例
+    # Load LabelEncoder instances
     @staticmethod
     def load_label_encoders(path):
-        with open(path + r'\msno_encoder.pkl', 'rb') as f:
+        with open(os.path.join(path, 'msno_encoder.pkl'), 'rb') as f:
             msno_encoder = pickle.load(f)
-        with open(path + r'\song_id_encoder.pkl', 'rb') as f:
+        with open(os.path.join(path, 'song_id_encoder.pkl'), 'rb') as f:
             song_id_encoder = pickle.load(f)
         return msno_encoder, song_id_encoder
 
-    # 讀取 LabelEncoder 實例
+    # Update LabelEncoder with new values
     @staticmethod
     def update_label_encoders(encoder, new_values):
         new_classes = pd.Series(new_values).unique()
@@ -443,3 +415,9 @@ class Encoder:
         updated_classes = pd.Series(current_classes).append(pd.Series(new_classes)).unique()
         encoder.classes_ = updated_classes
         return encoder
+    
+    # Check and create path if it doesn't exist
+    @staticmethod
+    def __check_and_create_path(path):
+        if not os.path.exists(path):
+            os.makedirs(path)

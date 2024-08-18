@@ -5,7 +5,7 @@ import time
 
 user_id = 11658
 
-model = load_model(r'D:\best_model_v4.h5')
+model = load_model(r'model/model.h5')
 song_df = FileManage.read_files(file='rec_song')
 
 model.summary()

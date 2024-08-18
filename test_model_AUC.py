@@ -7,7 +7,7 @@ from feature_processing import FeatureProcessor
 
 # Step 1: Load the model
 start_time = time.time()
-model_path = r'D:\best_model_v6.h5'
+model_path = r'model/model.h5'
 model = load_model(model_path)
 model.summary()
 elapsed_time = time.time() - start_time

@@ -1,0 +1,12 @@
+{
+    "train": "C:\\Users\\user\\Documents\\project\\train.csv",
+    "songs": "C:\\Users\\user\\Documents\\project\\songs.csv",
+    "members": "C:\\Users\\user\\Documents\\project\\members.csv",
+    "context_data": "data/context_data.csv",
+    "user_data": "data/user_data.csv",
+    "song_data": "data/song_data.csv",
+    "rec_song": "data/rec_song.csv",
+    "train_file": "D:\\project\\train_file.csv",
+    "test_file": "D:\\project\\test_file_filtered.csv",
+    "save_batch_file": "D:\\test"
+}

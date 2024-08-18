@@ -5,7 +5,8 @@ from tensorflow.keras.models import Model
 from feature_processing import NumericProcessor, ContextualProcessor, FeatureProcessor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_management import FileManage, MySQLDatabase
-import tensorflow_model_optimization as tfmot
+from tensorflow.keras.utils import plot_model
+from datetime import datetime
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import pandas as pd
@@ -66,11 +67,9 @@ class ModelTrainer:
         self.config = config
 
     def train(self, x_train, y_train):
-        model_name = 'model'
-        model_path = os.path.join(self.config['checkpoint_path'], model_name + '.h5')
+        model_path = os.path.join(self.config['checkpoint_path'], self.config['model_name'] + '_checkpoint' + '.h5')
         early_stop = EarlyStopping(monitor='val_loss', patience=self.config['patience'], mode='min')
         checkpoint = ModelCheckpoint(filepath=model_path, monitor="val_loss", mode="min", save_best_only=True, verbose=1)
-        update_pruning = tfmot.sparsity.keras.UpdatePruningStep()
         
         history = self.model.fit(
             x_train,
@@ -78,24 +77,32 @@ class ModelTrainer:
             epochs=self.config['epochs'],
             batch_size=self.config['batch_size'],
             validation_split=self.config['validation_split'],
-            callbacks=[early_stop, checkpoint, update_pruning],
+            callbacks=[early_stop, checkpoint],
             verbose=1
         )
         return history
 
 class PredictionProcessor:
     @staticmethod
-    def predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=1000, set_batch_size=None):
+    def predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=1000, set_batch_size=None, save_batch_file=False):
         """
-        為給定的用戶進行預測。
-        
-        參數:
-        user_id (str): 用戶ID。
-        model (Model): 預測模型。
-        batch_size (int): 批次大小。
-        
-        返回:
-        DataFrame: 按預測結果排序的結果數據框。
+        Make predictions for a given user.
+
+        Parameters:
+        user_id (str): User ID.
+        model (tf.keras.Model): Prediction model.
+        song_df (pd.DataFrame): DataFrame containing song data.
+        context_df (pd.DataFrame): DataFrame containing contextual features.
+        user_df (pd.DataFrame): DataFrame containing user features.
+        batch_size (int): Batch size for predictions.
+        set_batch_size (int, optional): Determines which prediction method to use based on its value:
+            - If `True`, use `model.predict` with the specified batch size.
+            - If `False`, use `model.predict`.
+            - Otherwise, use `model.predict_on_batch`.(defalut)
+        save_batch_file (bool, optional): If True, save each batch to a file. Default is False.
+
+        Returns:
+        pd.DataFrame: DataFrame of results sorted by prediction score.
         """
         predictions = []
         all_song_ids = []
@@ -104,14 +111,14 @@ class PredictionProcessor:
             futures = []
             for i in range(0, 359966, batch_size):
                 futures.append(executor.submit(PredictionProcessor.__preprocess_and_predict_batch, 
-                                               user_id, song_df, context_df, user_df, model, i, batch_size, set_batch_size))
+                                               user_id, song_df, context_df, user_df, model, i, batch_size, set_batch_size, save_batch_file))
             
             for future in as_completed(futures):
                 batch_song_ids, batch_predictions = future.result()
                 all_song_ids.extend(batch_song_ids)
                 predictions.extend(batch_predictions)
         
-        # 將預測結果組合成 DataFrame，並根據預測結果排序
+        # Combine predictions into a DataFrame and sort by prediction score
         result_df = pd.DataFrame({
             'song_id': np.concatenate(all_song_ids),
             'prediction': np.concatenate(predictions)
@@ -122,6 +129,16 @@ class PredictionProcessor:
     
     @staticmethod
     def preprocess_data(user_id, read_from_database=False):
+        """
+        Preprocess data for the given user.
+
+        Parameters:
+        user_id (str): User ID.
+        read_from_database (bool): Flag indicating whether to read data from the database.
+
+        Returns:
+        tuple: Processed context_df and user_df DataFrames.
+        """
         if read_from_database:
             context_df, user_df = MySQLDatabase().get_features_by_user_id(user_id)
         else:
@@ -135,7 +152,7 @@ class PredictionProcessor:
         return context_df, user_df
     
     @staticmethod
-    def __preprocess_and_predict_batch(user_id, song_df, context_df, user_df, model, start_index, batch_size, set_batch_size):
+    def __preprocess_and_predict_batch(user_id, song_df, context_df, user_df, model, start_index, batch_size, set_batch_size, save_batch_file=False):
         batch_song_ids = song_df['song_id'].values[start_index:start_index + batch_size]
         batch_song_ids_df = pd.DataFrame(batch_song_ids, columns=['song_id'])
         
@@ -151,30 +168,41 @@ class PredictionProcessor:
         user_id_repeated = np.tile(user_id, (batch_context_features.shape[0], 1))
         
         batch_user_song_feature = np.concatenate([user_features_repeated, batch_song_df.values], axis=1)
-        x_prediction = [user_id_repeated, batch_song_ids, batch_context_features, batch_user_song_feature]# 打印以供調試
+        x_prediction = [user_id_repeated, batch_song_ids, batch_context_features, batch_user_song_feature]
+        
+        # Choose the prediction method
+        predict_method = (model.predict_on_batch if set_batch_size is None else
+                          model.predict if set_batch_size is False else
+                          lambda x: model.predict(x, batch_size=batch_size))
+        
         with tf.device('/gpu:0'):
-            if set_batch_size is False:
-                batch_predictions = model.predict(x_prediction)
-            elif set_batch_size is True:
-                batch_predictions = model.predict(x_prediction, batch_size=batch_size)
-            elif set_batch_size is None:
-                batch_predictions = model.predict_on_batch(x_prediction)
-        #將結果儲存起來
-        #FileManage.save_processed_data(user_id_repeated, batch_song_ids, batch_predictions, batch_context_features, batch_user_song_feature, start_index)
+            batch_predictions = predict_method(x_prediction)
+
+        if save_batch_file:
+            FileManage.save_processed_data(user_id_repeated, batch_song_ids, batch_predictions, batch_context_features, batch_user_song_feature, start_index)
+        
         return batch_song_ids, batch_predictions
     
     @staticmethod
-    def predict_for_user_time(user_id, model, song_df, context_df, user_df, batch_size=1000, set_batch_size=None):
+    def predict_for_user_time(user_id, model, song_df, context_df, user_df, batch_size=1000, set_batch_size=None, save_batch_file=False):
         """
-        在 predict_for_user 加入計時，測試使用。
-        
-        參數:
-        user_id (str): 用戶ID。
-        model (Model): 預測模型。
-        batch_size (int): 批次大小。
-        
-        返回:
-        DataFrame: 按預測結果排序的結果數據框。
+        Make predictions for a given user.
+
+        Parameters:
+        user_id (str): User ID.
+        model (tf.keras.Model): Prediction model.
+        song_df (pd.DataFrame): DataFrame containing song data.
+        context_df (pd.DataFrame): DataFrame containing contextual features.
+        user_df (pd.DataFrame): DataFrame containing user features.
+        batch_size (int): Batch size for predictions.
+        set_batch_size (int, optional): Determines which prediction method to use based on its value:
+            - If `True`, use `model.predict` with the specified batch size.
+            - If `False`, use `model.predict`.
+            - Otherwise, use `model.predict_on_batch`.(defalut)
+        save_batch_file (bool, optional): If True, save each batch to a file. Default is False.
+
+        Returns:
+        pd.DataFrame: DataFrame of results sorted by prediction score.
         """
         start_time = time.time()
         
@@ -203,7 +231,7 @@ class PredictionProcessor:
             futures = []
             for i in start_values:
                 futures.append(executor.submit(PredictionProcessor.__preprocess_and_predict_batch_time, 
-                                               user_id, song_df, context_df, user_df, model, i, batch_size, set_batch_size))
+                                               user_id, song_df, context_df, user_df, model, i, batch_size, set_batch_size, save_batch_file))
             
             for future in as_completed(futures):
                 batch_song_ids, batch_predictions, preparation_duration, prediction_duration= future.result()
@@ -261,7 +289,7 @@ class PredictionProcessor:
         return context_df, user_df
     
     @staticmethod
-    def __preprocess_and_predict_batch_time(user_id, song_df, context_df, user_df, model, start_index, batch_size, set_batch_size):
+    def __preprocess_and_predict_batch_time(user_id, song_df, context_df, user_df, model, start_index, batch_size, set_batch_size, save_batch_file=False):
         
         batch_start_time = time.time()
         
@@ -286,17 +314,22 @@ class PredictionProcessor:
         preparation_duration = batch_prepare_time - batch_start_time
         print(f"      {start_index:06} batch preparation took {preparation_duration:>9.4f} seconds")
         
+        # Choose the prediction method
+        predict_method = (model.predict_on_batch if set_batch_size is None else
+                          model.predict if set_batch_size is False else
+                          lambda x: model.predict(x, batch_size=batch_size))
+        
+        print(predict_method)
+        
         with tf.device('/gpu:0'):
-            if set_batch_size is False:
-                batch_predictions = model.predict(x_prediction)
-            elif set_batch_size is True:
-                batch_predictions = model.predict(x_prediction, batch_size=batch_size)
-            elif set_batch_size is None:
-                batch_predictions = model.predict_on_batch(x_prediction)
+            batch_predictions = predict_method(x_prediction)
 
         batch_predict_time = time.time()
         prediction_duration = batch_predict_time - batch_prepare_time
         print(f"      {start_index:06} batch prediction took {prediction_duration:>10.4f} seconds")
+        
+        if save_batch_file:
+            FileManage.save_processed_data(user_id_repeated, batch_song_ids, batch_predictions, batch_context_features, batch_user_song_feature, start_index)
         
         # Return the batch song IDs, predictions, preparation time, and prediction time
         return batch_song_ids, batch_predictions, preparation_duration, prediction_duration
@@ -307,19 +340,63 @@ class ResultsHandler:
         self.history = history
         self.path = path
         self.model_name = model_name
-
-    def save_results(self):
+        
+    def save_results(self, save_architecture=False):
         if not os.path.exists(self.path):
             os.makedirs(self.path)
-
-        model_path = os.path.join(self.path, self.model_name + '.h5')
+        
+        model_filename = f"{self.model_name}.h5"
+        history_filename = f"{self.model_name}_training_history.csv"
+        
+        model_path = os.path.join(self.path, model_filename)
+        history_path = os.path.join(self.path, history_filename)
+        
+        def get_unique_path(file_path):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            directory, filename = os.path.split(file_path)
+            name, ext = os.path.splitext(filename)
+            new_filename = f"{name}_{timestamp}{ext}"
+            return os.path.join(directory, new_filename)
+        
+        # Check and handle existing model file
+        if os.path.exists(model_path):
+            print(f"The file '{model_path}' already exists.")
+            user_input = input("Do you want to overwrite it? (y/n): ").strip().lower()
+            if user_input == 'y':
+                pass  # Proceed to overwrite
+            else:
+                model_path = get_unique_path(model_path)
+                print(f"Saving model as '{model_path}' instead.")
+        
+        # Check and handle existing history file
+        if os.path.exists(history_path):
+            print(f"The file '{history_path}' already exists.")
+            user_input = input("Do you want to overwrite it? (y/n): ").strip().lower()
+            if user_input == 'y':
+                pass  # Proceed to overwrite
+            else:
+                history_path = get_unique_path(history_path)
+                print(f"Saving training history as '{history_path}' instead.")
+                
+        # Save the model architecture (optional)
+        if save_architecture:
+            architecture_path = os.path.join(self.path, f"{self.model_name}_model.png")
+            plot_model(self.model, 
+                       to_file=architecture_path, 
+                       show_shapes=True, 
+                       show_layer_names=True, 
+                       rankdir="BT", 
+                       dpi=200)
+            print(f"Model architecture saved to {architecture_path}")
+            
+        # Save the model
         self.model.save(model_path)
-        print(f'模型已保存為 {model_path}')
-
-        history_path = os.path.join(self.path, 'training_history.csv')
+        print(f"Model has been saved as {model_path}")
+        
+        # Save the training history
         history_df = pd.DataFrame(self.history.history)
         history_df.to_csv(history_path, index=False)
-        print(f"訓練數據已保存為 {history_path}")
+        print(f"Training history has been saved as {history_path}")
 
     def plot_results(self, plot_path=None, plot_show=False):
         plt.figure(figsize=(12, 4))
@@ -339,10 +416,12 @@ class ResultsHandler:
         plt.xlabel('Epochs')
         plt.ylabel('AUC')
         plt.legend()
-
-        plot_path = os.path.join(self.path, 'training_plot.png')
+        
+        plot_filename = f'{self.model_name}_training_plot.png'
+        plot_path = os.path.join(self.path, plot_filename)
+        
         plt.savefig(plot_path)
-        print(f"圖表已保存為 {plot_path}")
+        print(f"Plot has been saved as {plot_path}")
         
         if plot_show:
             plt.show()

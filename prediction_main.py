@@ -1,10 +1,29 @@
+"""
+    Make predictions for a given user.
+
+    Parameters:
+    user_id (str): User ID.
+    model (tf.keras.Model): Prediction model.
+    song_df (pd.DataFrame): DataFrame containing song data.
+    context_df (pd.DataFrame): DataFrame containing contextual features.
+    user_df (pd.DataFrame): DataFrame containing user features.
+    batch_size (int): Batch size for predictions.
+    set_batch_size (int, optional): Determines which prediction method to use based on its value:
+        - If `True`, use `model.predict` with the specified batch size.
+        - If `False`, use `model.predict`.
+        - Otherwise, use `model.predict_on_batch`.(Defalut)
+    save_batch_file (bool, optional): If True, save each batch to a file. Default is False.
+
+    Returns:
+    pd.DataFrame: DataFrame of results sorted by prediction score.
+"""
 from tensorflow.keras.models import load_model
 from recommendation_model import PredictionProcessor
 from data_management import FileManage
 import time
 
 def main():
-    model = load_model(r'D:\best_model_v4.h5')
+    model = load_model(r'model/model.h5')
     song_df = FileManage.read_files(file='rec_song')
     model.summary()
 
