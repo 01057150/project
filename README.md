@@ -67,7 +67,7 @@ Set up the project environment using a Conda YAML file to ensure compatibility a
 
 3. Create a Conda environment from the YAML file and specify your custom environment name:
    ```bash
-   conda env create -f environment.yml -n your_custom_env_name
+   conda env create -f environment.yml --name your_custom_env_name
    ```
 
 4. Activate the environment:
