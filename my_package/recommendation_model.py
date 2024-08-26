@@ -2,9 +2,9 @@ from tensorflow.keras.layers import Input, Embedding, Flatten, Dense, BatchNorma
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.models import Model
-from feature_processing import NumericProcessor, ContextualProcessor, FeatureProcessor
+from .feature_processing import NumericProcessor, ContextualProcessor, FeatureProcessor
+from .data_management import FileManage, MySQLDatabase
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from data_management import FileManage, MySQLDatabase
 from tensorflow.keras.utils import plot_model
 from datetime import datetime
 import matplotlib.pyplot as plt

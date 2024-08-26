@@ -3,7 +3,7 @@ import pickle
 import numpy as np
 import pandas as pd
 from joblib import dump, load
-from data_management import FileManage
+from .data_management import FileManage
 from sklearn.preprocessing import StandardScaler, LabelEncoder, Normalizer, MultiLabelBinarizer, OneHotEncoder
 
 class FeatureAdder:
