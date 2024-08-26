@@ -15,20 +15,31 @@ package "RecommendationSystem" {
         -genre_columns: list
 
         +read_and_process_data()
-        +manage_and_split_data(merged_df)
+        +split_and_prepare_data()
+        +file_based_data_preparation()
         +build_model()
-        +train_model(x_train, y_train)
+        +train_model()
         +save_results()
         +run()
     }
 
     package "data_management" {
+        RECTANGLE MySQLDatabase {
+            +connect()
+            +execute_query()
+            +get_features_by_user_id()
+            +close()
+        }
         RECTANGLE FileManage {
-            -paths: string
+            +file_paths: json
+            +initialize_paths()
+            +load_paths()
             +read_raw_files()
             +read_files()
             +save_processed_data()
             +save_to_csv()
+            +save_to_joblib()
+            +load_from_joblib()
         }
         RECTANGLE FileComparer {
             +compare_song_ids()
@@ -57,6 +68,9 @@ package "RecommendationSystem" {
         RECTANGLE NumericProcessor {
             +user_features()
             +song_features()
+            -log_transform()
+            -ensure_directory()
+            -load_and_transform()
         }
         RECTANGLE ContextualProcessor {
             +clean_contextual_features()
@@ -68,9 +82,14 @@ package "RecommendationSystem" {
             +one_hot_encoder()
             +one_hot_encode_contextual_features()
             +one_hot_encode_gender_features()
+            -get_or_create_encoder()
         }
         RECTANGLE Encoder {
             +encode()
+            -save_label_encoders()
+            -load_label_encoders()
+            -update_label_encoders()
+            -check_and_create_path()
         }
     }
 
@@ -96,12 +115,16 @@ package "RecommendationSystem" {
             +predict_for_user()
             +preprocess_data()
             -preprocess_and_predict_batch()
+            +predict_for_user_time()
+            +preprocess_data_time()
+            -preprocess_and_predict_batch_time()
         }
 
         class ResultsHandler {
             +model: Model
             +history: History
             +path: str
+            +model_name: str
             +save_results()
             +plot_results()
         }

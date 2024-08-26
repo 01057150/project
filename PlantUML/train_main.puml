@@ -26,11 +26,14 @@ package "RecommendationSystem" {
 
     package "data_management" {
         RECTANGLE FileManage {
-            -paths: string
+            +file_paths: json
+            +initialize_paths()
+            +load_paths()
             +read_raw_files()
             +read_files()
-            +save_processed_data()
             +save_to_csv()
+            +save_to_joblib()
+            +load_from_joblib()
         }
         RECTANGLE DataHandler {
             +merge_data()
@@ -55,6 +58,9 @@ package "RecommendationSystem" {
         RECTANGLE NumericProcessor {
             +user_features()
             +song_features()
+            -log_transform()
+            -ensure_directory()
+            -load_and_transform()
         }
         RECTANGLE ContextualProcessor {
             +clean_contextual_features()
@@ -66,9 +72,11 @@ package "RecommendationSystem" {
             +one_hot_encoder()
             +one_hot_encode_contextual_features()
             +one_hot_encode_gender_features()
+            -get_or_create_encoder()
         }
         RECTANGLE Encoder {
             +encode()
+            -check_and_create_path()
         }
     }
 
@@ -93,6 +101,7 @@ package "RecommendationSystem" {
             +model: Model
             +history: History
             +path: str
+            +model_name: str
             +save_results()
             +plot_results()
         }

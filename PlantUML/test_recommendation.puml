@@ -15,11 +15,23 @@ package "RecommendationSystem" {
     }
     
     package "data_management" {
+        RECTANGLE MySQLDatabase {
+            +connect()
+            +execute_query()
+            +get_features_by_user_id()
+            +close()
+        }
+        
         RECTANGLE FileManage {
+            +file_paths: json
+            +initialize_paths()
+            +load_paths()
             +read_files()
             +save_processed_data()
+            +load_from_joblib()
         }
     }
+
 
     package "feature_processing" {
         RECTANGLE NumericProcessor {
@@ -31,15 +43,23 @@ package "RecommendationSystem" {
         }
 
         RECTANGLE FeatureProcessor {
+            +one_hot_encoder()
             +one_hot_encode_contextual_features()
             +one_hot_encode_gender_features()
+            -get_or_create_encoder()
         }
     }
 }
 
-PredictionProcessor --> FileManage : uses
-PredictionProcessor --> ContextualProcessor : uses
-PredictionProcessor --> FeatureProcessor : uses
-PredictionProcessor --> NumericProcessor : uses
+package music_database <<Database>> {
+    ' Empty package, just to indicate the existence of the database
+}
+
+PredictionProcessor --> FileManage : " uses"
+PredictionProcessor --> ContextualProcessor : " uses"
+PredictionProcessor --> FeatureProcessor : " uses"
+PredictionProcessor --> NumericProcessor : " uses"
+PredictionProcessor --> MySQLDatabase : " uses"
+MySQLDatabase --> music_database : "  interacts with"
 
 @enduml
