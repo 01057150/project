@@ -1,6 +1,6 @@
 from tensorflow.keras.models import load_model
-from recommendation_model import PredictionProcessor
-from data_management import FileManage
+from my_package import PredictionProcessor
+from my_package import FileManage
 import time
 
 user_id = 11658
@@ -11,7 +11,7 @@ song_df = FileManage.read_files(file='rec_song')
 model.summary()
 
 #batch_sizes = [360000, 180000, 120000, 90000, 72000, 60000, 51429, 45000, 40000, 36000, 32727, 30000]
-batch_sizes = range(360000, 2000, -10000)
+batch_sizes = range(160000, 80000, -10000)
 
 batch_size_times = []
 

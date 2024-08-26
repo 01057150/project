@@ -2,8 +2,8 @@ import time
 import pandas as pd
 from tensorflow.keras.models import load_model
 from sklearn.metrics import roc_auc_score
-from data_management import FileManage
-from feature_processing import FeatureProcessor
+from my_package import FileManage
+from my_package import FeatureProcessor
 
 # Step 1: Load the model
 start_time = time.time()

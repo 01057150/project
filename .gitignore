@@ -1,0 +1,7 @@
+KKBOX/KKBOX_access_token.py
+config.json
+DBconnect.py
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

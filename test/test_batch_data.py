@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-from data_management import FileComparer
+from my_package import FileComparer
 
 # Specify the folder path containing the CSV files
 folder_path = r'D:\test'

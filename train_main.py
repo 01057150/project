@@ -1,6 +1,6 @@
-from data_management import FileManage, DataHandler, Recommender, DataSplitter
-from feature_processing import FeatureAdder, NumericProcessor, ContextualProcessor, FeatureProcessor, Encoder
-from recommendation_model import MLPModelBuilder, ModelTrainer, ResultsHandler
+from my_package import FileManage, DataHandler, Recommender, DataSplitter
+from my_package import FeatureAdder, NumericProcessor, ContextualProcessor, FeatureProcessor, Encoder
+from my_package import MLPModelBuilder, ModelTrainer, ResultsHandler
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.metrics import AUC
 import os

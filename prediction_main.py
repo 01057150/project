@@ -18,13 +18,14 @@
     pd.DataFrame: DataFrame of results sorted by prediction score.
 """
 from tensorflow.keras.models import load_model
-from recommendation_model import PredictionProcessor
-from data_management import FileManage
+from my_package import PredictionProcessor
+from my_package import FileManage
 import time
 
 def main():
     model = load_model(r'model/model.h5')
-    song_df = FileManage.read_files(file='rec_song')
+    #song_df = FileManage.read_files(file='rec_song')
+    song_df = FileManage.load_from_joblib(r'data/rec_song.joblib')
     model.summary()
 
     while True:
@@ -42,7 +43,7 @@ def main():
             context_df, user_df = PredictionProcessor.preprocess_data(user_id,read_from_database=True)
             
             # Make predictions for the user
-            result_df = PredictionProcessor.predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=120000)
+            result_df = PredictionProcessor.predict_for_user(user_id, model, song_df, context_df, user_df, batch_size=100000)
             end_time = time.time()
             print(f"{'===== Total predict_for_user took':<38} {end_time - start_time:>6.4f} seconds =====")
             
