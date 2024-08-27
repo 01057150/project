@@ -175,8 +175,7 @@ class PredictionProcessor:
                           model.predict if set_batch_size is False else
                           lambda x: model.predict(x, batch_size=batch_size))
         
-        with tf.device('/gpu:0'):
-            batch_predictions = predict_method(x_prediction)
+        batch_predictions = predict_method(x_prediction)
 
         if save_batch_file:
             FileManage.save_processed_data(user_id_repeated, batch_song_ids, batch_predictions, batch_context_features, batch_user_song_feature, start_index)
@@ -321,8 +320,7 @@ class PredictionProcessor:
         
         print(predict_method)
         
-        with tf.device('/gpu:0'):
-            batch_predictions = predict_method(x_prediction)
+        batch_predictions = predict_method(x_prediction)
 
         batch_predict_time = time.time()
         prediction_duration = batch_predict_time - batch_prepare_time
